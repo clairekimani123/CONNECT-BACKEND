@@ -31,6 +31,12 @@ swagger.init_app(app)
 frontend_url = "https://hopeconnect-ngo.vercel.app"
 CORS(app, origins=["https://hopeconnect-ngo.vercel.app"], supports_credentials=True, allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 
+@app.after_request
+def add_headers(response):
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+    return response
+
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
 
