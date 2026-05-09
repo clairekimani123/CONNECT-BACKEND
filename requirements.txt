@@ -9,3 +9,4 @@ sqlalchemy-serializer
 psycopg2-binary
 gunicorn
 python-dotenv
+requests
