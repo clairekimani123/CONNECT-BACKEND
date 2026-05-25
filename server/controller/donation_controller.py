@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from server.models import Donation, User
 from server.config import db
 from server.services.mpesa_service import stk_push
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 donations_bp = Blueprint('donations', __name__, url_prefix='/donations')
 
@@ -47,10 +47,10 @@ def create_donation():
 @donations_bp.route('/mpesa', methods=['POST'])
 @jwt_required()
 def mpesa_donate():
-    """Initiate M-Pesa STK Push donation"""
-    current_user = get_jwt_identity()
+    current_user_id = get_jwt_identity()  # 👈 Now returns string (user.id)
+    claims = get_jwt()                     # 👈 Get extra claims (email, role)
+    
     data = request.get_json()
-
     phone = data.get('phone_number') or data.get('phone')
     amount = data.get('amount')
     group = data.get('group', 'General Donation')
@@ -83,7 +83,7 @@ def mpesa_donate():
             details=details,
             phone_number=str(phone),
             amount=amount,
-            user_id=current_user['id']
+            user_id=int(current_user_id)  # 👈 Convert string back to int
         )
         db.session.add(donation)
         db.session.commit()

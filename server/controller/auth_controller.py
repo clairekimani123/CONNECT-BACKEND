@@ -95,11 +95,13 @@ def login():
     if not user.authenticate(password):
         return jsonify({'msg': 'Invalid credentials'}), 401
 
-    access_token = create_access_token(identity={
-        'id': user.id,
-        'email': user.email,
-        'role': user.role
+    access_token = create_access_token(
+    identity=str(user.id),  # 👈 Must be a string!
+    additional_claims={
+        "email": user.email,
+        "role": user.role
     })
+
 
     return make_response(jsonify({
         "access_token": access_token,
@@ -184,11 +186,13 @@ def firebase_login():
         db.session.add(user)
         db.session.commit()
 
-    access_token = create_access_token(identity={
-        'id': user.id,
-        'email': user.email,
-        'role': user.role
+    access_token = create_access_token(
+    identity=str(user.id),  # 👈 Must be a string!
+    additional_claims={
+        "email": user.email,
+        "role": user.role
     })
+
 
     return make_response(jsonify({
         'access_token': access_token,
