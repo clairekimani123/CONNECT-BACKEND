@@ -28,8 +28,8 @@ bcrypt.init_app(app)
 jwt.init_app(app)
 swagger.init_app(app)
 
-frontend_url = "https://hopeconnect-ngo.vercel.app"
-CORS(app, origins=["https://hopeconnect-ngo.vercel.app"], supports_credentials=True, allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+frontend_url = "https://hopeconnect-ngo.vercel.app/"
+CORS(app, origins=["https://hopeconnect-ngo.vercel.app/"], supports_credentials=True, allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 
 @app.after_request
 def add_headers(response):
