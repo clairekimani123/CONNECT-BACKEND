@@ -21,3 +21,5 @@ flask run  --> -->
 
 ## python3 -m venv venv
 ## source venv/bin/activate 
+
+ diana17@example.com admin - Hopeconnect123
