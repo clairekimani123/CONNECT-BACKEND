@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from server.models import Donation, User
+from server.models import Donation, User, Project
 from server.config import db
 from server.services.mpesa_service import stk_push
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -18,6 +18,7 @@ def create_donation():
     """Create a non-mpesa donation (food, clothes, other)"""
     data = request.get_json()
     user_id = data.get("user_id")
+    project_id = data.get("project_id")  # NEW
 
     try:
         if user_id:
@@ -25,13 +26,22 @@ def create_donation():
             if not user:
                 return jsonify({"error": "User not found"}), 404
 
+        # NEW — validate the project exists if one was provided.
+        # Donations without a project_id are still allowed (general donations
+        # not tied to a specific campaign), so this only checks when present.
+        if project_id:
+            project = Project.query.filter_by(id=project_id).first()
+            if not project:
+                return jsonify({"error": "Project not found"}), 404
+
         new_donation = Donation(
             type=data["type"],
             group=data["group"],
             details=data.get("description", ""),
             phone_number=data.get("phone"),
             amount=data.get("amount"),
-            user_id=user_id
+            user_id=user_id,
+            project_id=project_id,
         )
         db.session.add(new_donation)
         db.session.commit()
@@ -47,17 +57,24 @@ def create_donation():
 @donations_bp.route('/mpesa', methods=['POST'])
 @jwt_required()
 def mpesa_donate():
-    current_user_id = get_jwt_identity()  # 👈 Now returns string (user.id)
-    claims = get_jwt()                     # 👈 Get extra claims (email, role)
-    
+    current_user_id = get_jwt_identity()
+    claims = get_jwt()
+
     data = request.get_json()
     phone = data.get('phone_number') or data.get('phone')
     amount = data.get('amount')
     group = data.get('group', 'General Donation')
     details = data.get('details', 'HopeConnect Donation')
+    project_id = data.get('project_id')  # NEW
 
     if not phone or not amount:
         return jsonify({'msg': 'Phone number and amount are required'}), 400
+
+    # NEW — validate project if provided, same as create_donation above
+    if project_id:
+        project = Project.query.filter_by(id=project_id).first()
+        if not project:
+            return jsonify({'msg': 'Project not found'}), 404
 
     try:
         amount = int(amount)
@@ -83,7 +100,8 @@ def mpesa_donate():
             details=details,
             phone_number=str(phone),
             amount=amount,
-            user_id=int(current_user_id)  # 👈 Convert string back to int
+            user_id=int(current_user_id),
+            project_id=project_id,
         )
         db.session.add(donation)
         db.session.commit()
@@ -132,4 +150,11 @@ def get_donations_by_type(donation_type):
 @donations_bp.route('/by-group/<group_name>', methods=['GET'])
 def get_donations_by_group(group_name):
     donations = Donation.query.filter_by(group=group_name).all()
+    return jsonify([d.to_dict() for d in donations]), 200
+
+
+@donations_bp.route('/by-project/<int:project_id>', methods=['GET'])
+def get_donations_by_project(project_id):
+    """NEW — get all donations made toward a specific project."""
+    donations = Donation.query.filter_by(project_id=project_id).all()
     return jsonify([d.to_dict() for d in donations]), 200
