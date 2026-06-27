@@ -9,7 +9,6 @@ projects_bp = Blueprint('projects', __name__, url_prefix='/projects')
 
 
 def _require_admin():
-    """Shared admin check — see expense_controller.py for the same helper."""
     claims = get_jwt()
     if claims.get('role') != 'admin':
         return jsonify({"error": "Admin access required"}), 403
@@ -18,13 +17,6 @@ def _require_admin():
 
 @projects_bp.route('', methods=['GET'])
 def get_projects():
-    """
-    Get all projects
-    ---
-    responses:
-      200:
-        description: List of all projects
-    """
     projects = [project.to_dict() for project in Project.query.all()]
     return jsonify(projects), 200
 
@@ -32,21 +24,6 @@ def get_projects():
 @projects_bp.route('', methods=['POST'])
 @jwt_required()
 def create_project():
-    """
-    Create a new project. Admin only.
-    ---
-    security:
-      - Bearer: []
-    consumes:
-      - application/json
-    responses:
-      201:
-        description: Project created successfully
-      403:
-        description: Admin access required
-      422:
-        description: Missing or invalid project data
-    """
     admin_check = _require_admin()
     if admin_check:
         return admin_check
@@ -82,19 +59,6 @@ def create_project():
 @projects_bp.route('/<int:project_id>', methods=['DELETE'])
 @jwt_required()
 def delete_project(project_id):
-    """
-    Delete a project by ID. Admin only.
-    ---
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Project deleted successfully
-      403:
-        description: Admin access required
-      404:
-        description: Project not found
-    """
     admin_check = _require_admin()
     if admin_check:
         return admin_check
@@ -115,23 +79,22 @@ def delete_project(project_id):
 @projects_bp.route('/<int:project_id>/dashboard', methods=['GET'])
 def get_project_dashboard(project_id):
     """
-    Transparency dashboard data for a single project — public, no auth
-    required, since the entire point is for anyone to see exactly where
-    money raised for this project has gone.
+    Transparency dashboard for a single project.
 
-    Returns:
-      raised            total of all donations linked to this project
-      spent             total of all expenses linked to this project
-      remaining         raised - spent
-      target            the project's fundraising goal (0 if not set)
-      percent_funded    raised / target * 100, capped at 100, 0 if no target
-      expense_breakdown spending grouped by category, for a pie/bar chart
+    IMPORTANT — only donations with status='completed' count toward
+    'raised'. Pending or failed M-Pesa attempts (STK push sent but never
+    confirmed, cancelled, wrong PIN, etc.) are excluded, so this number
+    only ever reflects money that has actually moved.
     """
     project = Project.query.filter_by(id=project_id).first()
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    donations = Donation.query.filter_by(project_id=project_id).all()
+    # NEW — filter by status='completed', not just project_id
+    donations = Donation.query.filter_by(
+        project_id=project_id,
+        status='completed',
+    ).all()
     expenses = Expense.query.filter_by(project_id=project_id).all()
 
     raised = sum(d.amount or 0 for d in donations)
@@ -145,6 +108,13 @@ def get_project_dashboard(project_id):
     for e in expenses:
         breakdown[e.category] = breakdown.get(e.category, 0) + e.amount
 
+    # NEW — surface pending count too, useful for an admin view even
+    # though it never affects the public 'raised' total
+    pending_count = Donation.query.filter_by(
+        project_id=project_id,
+        status='pending',
+    ).count()
+
     return jsonify({
         "project_id": project_id,
         "project_type": project.type,
@@ -154,18 +124,15 @@ def get_project_dashboard(project_id):
         "target": target,
         "percent_funded": percent_funded,
         "donor_count": len(donations),
+        "pending_donations": pending_count,  # NEW
         "expense_breakdown": breakdown,
     }), 200
 
 
 @projects_bp.route('/dashboard/overview', methods=['GET'])
 def get_overview_dashboard():
-    """
-    Organization-wide transparency totals across ALL projects.
-    Powers a top-level "our impact" summary, separate from the
-    per-project breakdown above.
-    """
-    all_donations = Donation.query.all()
+    """Org-wide totals — same completed-only filtering as above."""
+    all_donations = Donation.query.filter_by(status='completed').all()  # NEW filter
     all_expenses = Expense.query.all()
 
     total_raised = sum(d.amount or 0 for d in all_donations)
