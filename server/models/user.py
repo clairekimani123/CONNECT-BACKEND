@@ -5,10 +5,19 @@ from sqlalchemy_serializer import SerializerMixin
 class User(db.Model, SerializerMixin):
     __tablename__ = 'users'
 
+    # FIXED — same recursion-prevention pattern. Cut nested relationships
+    # on each donation/volunteer_signup's own user/project, not just the
+    # single direct back-reference.
     serialize_rules = (
-        "-donations.user",  
-        "-volunteer_signups.user",  
-        "-_password_hash",  
+        "-donations.user",
+        "-donations.project.volunteers",
+        "-donations.project.donations",
+        "-donations.project.expenses",
+        "-volunteer_signups.user",
+        "-volunteer_signups.project.volunteers",
+        "-volunteer_signups.project.donations",
+        "-volunteer_signups.project.expenses",
+        "-_password_hash",
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -17,7 +26,7 @@ class User(db.Model, SerializerMixin):
     email = db.Column(db.String, nullable=False, unique=True)
     _password_hash = db.Column(db.String)
     role = db.Column(db.String, default="user")
-    
+
     donations = db.relationship('Donation', back_populates='user', lazy=True)
     volunteer_signups = db.relationship('Volunteer', back_populates='user', lazy=True)
 

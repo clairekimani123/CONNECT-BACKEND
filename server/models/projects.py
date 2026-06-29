@@ -5,9 +5,18 @@ from sqlalchemy_serializer import SerializerMixin
 class Project(db.Model, SerializerMixin):
     __tablename__ = 'projects'
 
+    # FIXED — cut off nested relationships on volunteers/donations/expenses
+    # entirely, not just the single direct back-reference. A Project's
+    # volunteer list doesn't need each volunteer's full user object with
+    # THEIR full donation history nested inside — that's the chain that
+    # caused the recursion.
     serialize_rules = (
         '-volunteers.project',
+        '-volunteers.user.donations',
+        '-volunteers.user.volunteer_signups',
         '-donations.project',
+        '-donations.user.donations',
+        '-donations.user.volunteer_signups',
         '-expenses.project',
     )
 
@@ -17,14 +26,9 @@ class Project(db.Model, SerializerMixin):
     description = db.Column(db.String, nullable=False)
     image_url = db.Column(db.String, nullable=False)
 
-    # NEW — the fundraising goal for this project.
-    # Nullable so existing projects don't break; defaults to 0 if not set,
-    # the dashboard treats 0 as "no target set" and just shows raised/spent.
     target_amount = db.Column(db.Integer, nullable=True, default=0)
 
     volunteers = db.relationship('Volunteer', back_populates='project', lazy=True)
-
-    # NEW relationships — required for the transparency dashboard aggregation
     donations = db.relationship('Donation', back_populates='project', lazy=True)
     expenses = db.relationship('Expense', back_populates='project', lazy=True, cascade='all, delete-orphan')
 
