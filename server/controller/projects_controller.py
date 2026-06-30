@@ -29,13 +29,11 @@ def create_project():
         return admin_check
 
     data = request.get_json()
-
     if not data:
         return jsonify({"error": "Missing project data"}), 422
 
     try:
         date_obj = datetime.strptime(data["date"], "%Y-%m-%d").date()
-
         new_project = Project(
             type=data["type"],
             description=data["description"],
@@ -43,12 +41,9 @@ def create_project():
             image_url=data["image_url"],
             target_amount=data.get("target_amount", 0),
         )
-
         db.session.add(new_project)
         db.session.commit()
-
         return jsonify(new_project.to_dict()), 201
-
     except KeyError as e:
         return jsonify({"error": f"Missing required field: {str(e)}"}), 422
     except Exception as e:
@@ -76,40 +71,48 @@ def delete_project(project_id):
         return jsonify({"error": str(e)}), 422
 
 
-@projects_bp.route('/<int:project_id>/dashboard', methods=['GET'])
-def get_project_dashboard(project_id):
+def _calculate_project_stats(project):
     """
-    Transparency dashboard for a single project.
-
-    IMPORTANT — only donations with status='completed' count toward
-    'raised'. Pending or failed M-Pesa attempts (STK push sent but never
-    confirmed, cancelled, wrong PIN, etc.) are excluded, so this number
-    only ever reflects money that has actually moved.
+    Shared helper — computes the same raised/spent/target numbers used by
+    both the single-project dashboard and the new org-wide breakdown below,
+    so the two endpoints can never drift out of sync with each other.
     """
-    project = Project.query.filter_by(id=project_id).first()
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
-
-    # NEW — filter by status='completed', not just project_id
     donations = Donation.query.filter_by(
-        project_id=project_id,
+        project_id=project.id,
         status='completed',
     ).all()
-    expenses = Expense.query.filter_by(project_id=project_id).all()
+    expenses = Expense.query.filter_by(project_id=project.id).all()
 
     raised = sum(d.amount or 0 for d in donations)
     spent = sum(e.amount or 0 for e in expenses)
     target = project.target_amount or 0
-
     percent_funded = round((raised / target) * 100, 1) if target > 0 else 0
     percent_funded = min(percent_funded, 100)
 
+    return {
+        "raised": raised,
+        "spent": spent,
+        "remaining": raised - spent,
+        "target": target,
+        "percent_funded": percent_funded,
+        "donor_count": len(donations),
+    }
+
+
+@projects_bp.route('/<int:project_id>/dashboard', methods=['GET'])
+def get_project_dashboard(project_id):
+    """Transparency dashboard for a single project."""
+    project = Project.query.filter_by(id=project_id).first()
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    stats = _calculate_project_stats(project)  # reuses the shared helper now
+
+    expenses = Expense.query.filter_by(project_id=project_id).all()
     breakdown = {}
     for e in expenses:
         breakdown[e.category] = breakdown.get(e.category, 0) + e.amount
 
-    # NEW — surface pending count too, useful for an admin view even
-    # though it never affects the public 'raised' total
     pending_count = Donation.query.filter_by(
         project_id=project_id,
         status='pending',
@@ -118,35 +121,52 @@ def get_project_dashboard(project_id):
     return jsonify({
         "project_id": project_id,
         "project_type": project.type,
-        "raised": raised,
-        "spent": spent,
-        "remaining": raised - spent,
-        "target": target,
-        "percent_funded": percent_funded,
-        "donor_count": len(donations),
-        "pending_donations": pending_count,  # NEW
+        **stats,
+        "pending_donations": pending_count,
         "expense_breakdown": breakdown,
     }), 200
 
 
 @projects_bp.route('/dashboard/overview', methods=['GET'])
 def get_overview_dashboard():
-    """Org-wide totals — same completed-only filtering as above."""
-    all_donations = Donation.query.filter_by(status='completed').all()  # NEW filter
+    """
+    Org-wide totals AND a per-project breakdown, so a donor can see at a
+    glance — right on the homepage, before clicking into any single
+    project — exactly how much each individual project has raised.
+    """
+    all_donations = Donation.query.filter_by(status='completed').all()
     all_expenses = Expense.query.all()
 
     total_raised = sum(d.amount or 0 for d in all_donations)
     total_spent = sum(e.amount or 0 for e in all_expenses)
 
-    breakdown = {}
+    overall_breakdown = {}
     for e in all_expenses:
-        breakdown[e.category] = breakdown.get(e.category, 0) + e.amount
+        overall_breakdown[e.category] = overall_breakdown.get(e.category, 0) + e.amount
+
+    # NEW — per-project stats, reusing the exact same calculation as the
+    # single-project dashboard endpoint above
+    all_projects = Project.query.all()
+    project_breakdown = []
+    for project in all_projects:
+        stats = _calculate_project_stats(project)
+        project_breakdown.append({
+            "project_id": project.id,
+            "project_type": project.type,
+            "image_url": project.image_url,
+            **stats,
+        })
+
+    # Sort highest-raised first — donors naturally want to see the most
+    # active/successful projects first
+    project_breakdown.sort(key=lambda p: p["raised"], reverse=True)
 
     return jsonify({
         "total_raised": total_raised,
         "total_spent": total_spent,
         "total_remaining": total_raised - total_spent,
         "donor_count": len(all_donations),
-        "project_count": Project.query.count(),
-        "expense_breakdown": breakdown,
+        "project_count": len(all_projects),
+        "expense_breakdown": overall_breakdown,
+        "projects": project_breakdown,  # NEW
     }), 200
