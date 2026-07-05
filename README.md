@@ -10,7 +10,7 @@
 export FLASK_APP=server.app  
 FLASK_DEBUG=True
 FLASK_RUN_HOST=localhost   
-FLASK_RUN_PORT=5000        
+FLASK_RUN_PORT=5000       
 
 flask db init
 flask db migrate -m "Initial Migration"
